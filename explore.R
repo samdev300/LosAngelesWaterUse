@@ -22,7 +22,7 @@ library(dplyr)
 library(tidyr)
 library(stringr)
 
-# conver the date to Date format
+# convert the date to Date format
 waterPower$Date <- as.Date(as.yearmon(waterPower$Text.Date, "%b_%Y"))
 
 # Split the zip to zip & geo codes
@@ -95,11 +95,10 @@ waterPower2011$Water.Use.Per.Month <- waterPower2011$Water.Use / 12
 waterPower2011$Water.Use.Per.Person <- signif(waterPower2011$Water.Use / waterPower2011$Population, 4)
 
 # Water Use Per Person Per Month in gallons
-waterPower2011$Water.Use.Per.Month.Per.Person.Gallons <- signif((waterPower2011$Water.Use.Per.Month / waterPower2011$Population) * 748.05, 5)
+waterPower2011$Water.Use.Per.Month.Per.Person.Gallons <- signif((waterPower2011$Water.Use.Per.Month / waterPower2011$Population) * 748, 5)
 
 # Make a backup
 waterPower2011_BAK <- waterPower2011
-
 
 # Remove the outliers
 waterPower2011 <- subset(waterPower2011, Water.Use > 0)
@@ -111,4 +110,70 @@ ggplot(data=waterPower2011, aes(x=Water.Use.Per.Month.Per.Person.Gallons)) + geo
 
 ggplot(data=waterPower2011, aes(x=log(Water.Use.Per.Month.Per.Person.Gallons))) + geom_histogram(binwidth=0.1)
 
+# ------------------------------------------------------------------------
+install.packages("maps")
+library(maps)
+
+install.packages("ggmap")
+library(ggmap)
+
+# Show map of Los Angeles
+losAngeles <- get_map(location="Los Angeles", zoom=11)
+ggmap(losAngeles)
+
+# Plot some points on top of map
+ggmap(losAngeles) + geom_point(data=waterPower2011, aes(x=Lon, y=Lat))
+
+# Water User Per Month
+ggmap(losAngeles) + geom_point(data=waterPower2011, aes(x=Lon, y=Lat, size=Water.Use.Per.Month, alpha=0.5)) + scale_size(range=c(3, 15))
+
+
+# Water Use Per Month Per Person
+# Remove the outlier that has population less than 100.
+waterPower2011 <- subset(waterPower2011, Population > 100)
+ggmap(losAngeles) + geom_point(data=waterPower2011, aes(x=Lon, y=Lat, size=Water.Use.Per.Month.Per.Person.Gallons, alpha=0.5)) + scale_size(range=c(3,15))
+
+
+
+# ----------------------
+area1 <- ggmap(get_map(location="90071", zoom=16, maptype="roadmap"))
+
+ggmap(get_googlemap(center="90071", zoom=16, maptype="roadmap"))
+
+
+# ----------------------
+install.packages("rgdal")
+install.packages("gpclib")
+install.packages("maptools")
+
+library(rgdal)
+library(gpclib)
+library(maps)
+library(ggmap)
+library(maptools)
+library(ggplot2)
+
+
+
+laz <- readOGR("data/LA_Zip_Shapefiles_Street", "CAMS_ZIPCODE_STREET_SPECIFIC")
+
+zipAreas <- spTransform(laz, CRS("+proj=longlat +datum=WGS84"))
+
+gpclibPermit()
+zipData <- fortify(model=zipAreas, region="Name")
+
+zip.90071 <- subset(zipData, id == "90071")
+zip.90067 <- subset(zipData, id == "90067")
+
+losAngelesMap <- ggmap(losAngeles) + geom_polygon(aes(x=long, y=lat, group=group), fill='white', size=.2, color='darkgrey', data=zipLA, alpha=0.4)
+losAngelesMap
+
+# Zoom into 90071
+area1 <- ggmap(get_map(location="90071", zoom=16, maptype="roadmap"))
+area1 + geom_polygon(aes(x=long, y=lat, group=group), fill='grey', size=.4, color='black', data=zip.90071, alpha=0.5)
+
+ggmap(get_map(location="90067", zoom=15, maptype="roadmap")) + 
+    geom_polygon(aes(x=long, y=lat, group=group), fill='grey', size=.4, color='black', data=zip.90067, alpha=0.5)
+
+?get_googlemap
 

@@ -1,0 +1,242 @@
+---
+title: "City of Los Angeles - Water Usage (2011)"
+author: "Sam K."
+output: html_document
+---
+
+I was just curious to see which areas in Los Angeles use water the most.
+So I clicked over to [Los Angeles Open Data](https://data.lacity.org/A-Livable-and-Sustainable-City/Water-and-Electric-Usage-from-2005-2013/asvq-scwp), and got myself Water & Electricity Usage (2005 - 2013) data.
+
+**Let's take a look.**
+
+First, note that the water is measured in Hundred Cubic Feet (HCF).
+1 HCF = approx. 748 gallons
+
+```{r, message=FALSE}
+library(zoo)
+library(plyr)
+library(dplyr)
+library(tidyr)
+library(stringr)
+library(zipcode)
+library(ggplot2)
+library(maps)
+library(ggmap)
+
+```
+
+```{r}
+# load the data that was already downloaded
+waterPower <- read.csv("data/Water_and_Electric_Usage_from_2005_-_2013.csv")
+
+# Some clean up
+
+# convert the date to Date format
+waterPower$Date <- as.Date(as.yearmon(waterPower$Text.Date, "%b_%Y"))
+
+# Split the zip to zip & geo codes
+zipSplit <- ldply(str_split(waterPower$Zip.Code, "\n"))
+geoSplit <- ldply(str_split(zipSplit$V2, ","))
+
+geoSplit$V1 <- str_replace_all(geoSplit$V1, "\\(", "")
+geoSplit$V1 <- str_replace_all(geoSplit$V1, " ", "")
+
+geoSplit$V2 <- str_replace_all(geoSplit$V2, "\\)", "")
+geoSplit$V2 <- str_replace_all(geoSplit$V2, " ", "")
+
+waterPower$ZipCode <- zipSplit$V1
+waterPower$Lon <- geoSplit$V1
+waterPower$Lat <- geoSplit$V2
+
+# Remove the old variables
+waterPower$Zip.Code <- NULL
+waterPower$Text.Date <- NULL
+waterPower$Value.Date <- NULL
+
+# Reorder the columns just for neatness sake
+waterPower <- waterPower[, c(3, 4, 5, 6, 1, 2)]
+
+# Clean up the temporary objects
+rm(zipSplit)
+rm(geoSplit)
+
+```
+
+
+## Just the 2011 Data
+
+Some years were missing some data, so I just decided to use only the 2011 data as it has the most complete data.  I was also looking to add the population data from 2010 Census, so it works outs nicely since it's not too far from the year 2010.
+
+```{r, message=FALSE, warning=FALSE}
+# Get just the 2011 data;  Get total by zipcode
+waterPower2011 <- waterPower %>%
+    filter(Date >= as.Date('2011-01-01')) %>%
+    filter(Date < as.Date('2012-01-01')) %>%
+    group_by(ZipCode) %>%
+    summarise(Water.Use = sum(Water.Use), Power.Use = sum(Power.Use)) %>%
+    arrange(desc(Water.Use))
+
+# Load Population info
+# Merge with Population table to get population
+# The result is the data for just the Los Angeles
+population <- read.csv("data/2010+Census+Population+By+Zipcode+(ZCTA).csv")
+colnames(population) <- c("ZipCode", "Population")
+
+population$ZipCode <- as.character(population$ZipCode)
+waterPower2011 <- waterPower2011 %>%
+    inner_join(population, by="ZipCode")
+
+# Then add Latitude, Longitude for each zip code
+data(zipcode)
+
+waterPower2011$Lon <- sapply(waterPower2011$ZipCode, function(x) zipcode$longitude[zipcode$zip == x])
+waterPower2011$Lat <- sapply(waterPower2011$ZipCode, function(x) zipcode$latitude[zipcode$zip == x])
+```
+
+
+
+```{r, message=FALSE}
+# Show map of Los Angeles
+losAngeles <- get_map(location="Los Angeles", zoom=11)
+
+# Water User Per Month
+ggmap(losAngeles) + geom_point(data=waterPower2011, aes(x=Lon, y=Lat, size=Water.Use, alpha=0.5)) + scale_size(range=c(3, 15))
+
+```
+
+## Top 15 Areas in LA with most water usage
+
+```{r}
+# Get top 15 Zip Codes
+# waterPower2011 is already sorted by water.use in descening order, so just need to get top 15
+waterTop15 <- head(waterPower2011, 15)
+waterTop15$Water.Use.In.Gallons <- waterTop15$Water.Use * 748
+waterTop15[, c("ZipCode", "Water.Use", "Water.Use.In.Gallons")]
+```
+
+## How about PER PERSON?
+
+```{r, message=FALSE, warning=FALSE}
+# Water Use Per Person (based on the corresponding 2010 census data)
+waterPower2011$Water.Use.Per.Person <- signif(waterPower2011$Water.Use / waterPower2011$Population, 4)
+
+# Water Use Per Person Per Month in gallons
+waterPower2011$Water.Use.Per.Month.Per.Person.In.Gallons <- signif(((waterPower2011$Water.Use / 12) / waterPower2011$Population) * 748, 4)
+
+waterTop15 <- waterPower2011 %>%
+    select(ZipCode, Population, Water.Use.Per.Month.Per.Person.In.Gallons) %>%
+    arrange(desc(Water.Use.Per.Month.Per.Person.In.Gallons))
+head(waterTop15, 15)
+```
+
+### Say what~~~~~???
+There's gotta be something wrong with this.  The whole thing!
+
+**First.**  For the zip code 90071, the population is only 15 and SO MUCH WATER used!!  Where is this??
+
+With the help of some extra data from [Los Angeles County GIS Data Portal](http://egis3.lacounty.gov/dataportal/2011/01/24/zip-codes-with-parcel-specific-boundaries/),
+I was able to mark the area each zip code covers.  Let's take a look.
+
+```{r, message=FALSE, warning=FALSE, results="hide"}
+library(rgdal)
+library(gpclib)
+library(maptools)
+
+LAZIP <- readOGR("data/LA_Zip_Shapefiles_Street", "CAMS_ZIPCODE_STREET_SPECIFIC")
+zipAreas <- spTransform(LAZIP, CRS("+proj=longlat +datum=WGS84"))
+
+gpclibPermit()  # Set gpclibPermitStatus() to TRUE
+
+# Include the zip code data when building the data frame
+zipData <- fortify(model=zipAreas, region="Name")   
+
+# Now all ready to draw the map with the zip code boundary.
+```
+
+
+#### Zip 90071
+```{r, message=FALSE}
+thisZip <- "90071"
+# Subset the specified zip codes
+thisZipData <- subset(zipData, id == thisZip)
+ggmap(get_map(location=thisZip, zoom=15, maptype="roadmap")) + 
+    geom_polygon(aes(x=long, y=lat, group=group), fill='grey', size=.4, color='black', data=thisZipData, alpha=0.5) +
+    labs(title=thisZip)
+```
+
+It's part of downtown Los Angeles.  It's mostly commercial.  There are businesses like Bank of America, The Westin Bonaventure Hotel, UnionBank, Chase Bank, Citibank, The Standard Hotel, Hilton Hotel, etc.  The fact that there are several big hotels here may explain the water usage, however, that's still a lot of water!
+
+
+#### Zip 90017
+Now let's see the area where 23,768 people live and only use 4.841 gallons of water per person per month.
+
+```{r, message=FALSE}
+thisZip <- "90017"
+# Subset the specified zip codes
+thisZipData <- subset(zipData, id == thisZip)
+ggmap(get_map(location=thisZip, zoom=15, maptype="roadmap")) + 
+    geom_polygon(aes(x=long, y=lat, group=group), fill='grey', size=.4, color='black', data=thisZipData, alpha=0.5) +
+    labs(title=thisZip)
+```
+
+Funny how it's right next to 90071.  It covers area that's a lot bigger and it includes lots of residential areas with big apartment complexes.  But how is that they only use 4.84 gallons of water per person PER MONTH??  That's basically about five flushes of your toilet!  So either the population is incorrect or the water usage number is incorrect.  Or could it be that vast part of the area is served by a water company other than LA Department of Water and Power?  I did a quick web search on that and it seems unlikely.
+
+Since we're on the topic of water usage PER PERSON, let's take some guesses to see what would be realistic.
+
+```{r}
+# Let me make some real rough guesses
+
+# Toilet Flush: 1 in the morning; 1 at night; 1 flush = 1 gallon;
+flushes <- 2 * 1
+
+# Shower: 1 shower per day; 10 minute shower; 1.5 gallons per minute for typical shower heads;
+shower <- 1 * (10 * 1.5)
+
+# Brush teeth; Wash hands;  Let's just say 1 gallon per day;
+handwash <- 1
+
+# Prepare food; Do dishes: Kitchen faucet = 2 gallons per minute; On and off usage totaling about 15 minutes;
+dishwash <- 2 * 15
+
+# Laundry: 30 gallons per load;  About 3 loads per month;
+laundry <- (30 * 3) / 30    # Divided by 30 to get daily average;
+
+# Misc: 0.5 gallons per day;  Whatever else there is like watering plants, etc.
+misc <- 0.5
+
+# Let's not include anything outdoor like lawns, washing driveway, etc. for simplicity.
+    
+# 30 days in a month
+(flushes + shower + handwash + dishwash + laundry + misc ) * 30
+
+```
+
+
+**That's 1,545 gallons per person!**
+Obviously this is a really rough guess, but probably not too far off.  So it's safe to say per person water usage should be at least about 1,000 gallons per month.
+
+
+## Conclusion
+
+Let's try removing that one outlier and see how the PER person usage is throughout the city of Los Angeles:
+
+```{r, message=FALSE, warning=FALSE}
+# Let's remove that one outlier to get a better sense of the overall usage
+waterPower2011 <- subset(waterPower2011, ZipCode != "90071")
+
+ggmap(losAngeles) + geom_point(data=waterPower2011, aes(x=Lon, y=Lat, size=Water.Use.Per.Month.Per.Person.In.Gallons, alpha=0.5)) + scale_size(range=c(3,15))
+```
+
+But then again, it's not too helpful knowing that the data needs some various cross checks.  The population data could be wrong as the zip code approximately assigned to whatever that could be made out from the parcel data.  It could also be possible that LADWP only released parts of measurements.
+
+Regardless, this was done just for fun and not for some serious research.   I dealt with the missing values by just removing them all together as it was ok to do for this particular purpose.
+
+Bottomline is... let's try our best to save water.
+
+
+
+
+
+
+
+
