@@ -227,15 +227,9 @@ waterPower2011 <- subset(waterPower2011, ZipCode != "90071")
 ggmap(losAngeles) + geom_point(data=waterPower2011, aes(x=Lon, y=Lat, size=Water.Use.Per.Month.Per.Person.In.Gallons, alpha=0.5)) + scale_size(range=c(3,15))
 ```
 
-But then again, it's not too helpful knowing that the data needs some various cross checks.  The population data could be wrong as the zip code approximately assigned to whatever that could be made out from the parcel data.  It could also be possible that LADWP only released parts of measurements.
+So the per person usages is about the same mostly throughout the city.  But then again, it's not too helpful knowing that the data might be incorrect one way or another.  The population data could be wrong as the zip code approximately assigned to whatever that could be made out from the parcel data.  It could also be possible that LADWP only released parts of measurements.
 
-Regardless, this was done just for fun and not for some serious research.   I dealt with the missing values by just removing them all together as it was ok to do for this particular purpose.
-
-Bottomline is... let's try our best to save water.
-
-
-
-
+Regardless, this was done just for fun and not for some serious research.   I dealt with the missing values by just removing them instead of imputing as it wouldn't have matterd much either way for this particular analysis.
 
 
 
